@@ -129,18 +129,36 @@ function App() {
     return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
   };
 
+  const getFileIcon = (name: string, isDir: boolean) => {
+    if (isDir) return "📁";
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    const icons: Record<string, string> = {
+      jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️", webp: "🖼️", svg: "🖼️",
+      mp4: "🎬", avi: "🎬", mkv: "🎬", mov: "🎬",
+      mp3: "🎵", wav: "🎵", flac: "🎵", ogg: "🎵", aac: "🎵",
+      pdf: "📕", doc: "📘", docx: "📘", txt: "📝", md: "📝",
+      zip: "📦", rar: "📦", "7z": "📦", tar: "📦", gz: "📦",
+      apk: "📱", json: "⚙️", xml: "⚙️", db: "🗄️",
+    };
+    return icons[ext] || "📄";
+  };
+
   if (!adbOk && error) {
     return (
       <div className="app">
+        <div className="glow-orb glow-orb-1" />
+        <div className="glow-orb glow-orb-2" />
         <div className="error-screen">
-          <h2>⚠️ ADB 未就绪</h2>
-          <p>{error}</p>
-          <p>请确保：</p>
-          <ul>
-            <li>已安装 Android SDK Platform Tools</li>
-            <li>adb 已添加到系统 PATH</li>
-            <li>已通过 USB 连接 Android 设备并开启 USB 调试</li>
-          </ul>
+          <div className="error-card">
+            <h2>⚠️ ADB 未就绪</h2>
+            <p className="error-msg">{error}</p>
+            <p className="error-msg">请确保：</p>
+            <ul className="error-tips">
+              <li>已安装 Android SDK Platform Tools</li>
+              <li>adb 已添加到系统 PATH</li>
+              <li>已通过 USB 连接 Android 设备并开启 USB 调试</li>
+            </ul>
+          </div>
         </div>
       </div>
     );
@@ -148,42 +166,55 @@ function App() {
 
   return (
     <div className="app">
+      <div className="glow-orb glow-orb-1" />
+      <div className="glow-orb glow-orb-2" />
+
+      {/* 标题栏 */}
+      <div className="titlebar">
+        <h1>📱 SDCard 文件管理器</h1>
+      </div>
+
+      {/* 工具栏 */}
       <div className="toolbar">
-        <button onClick={goUp} title="返回上级">⬆️</button>
-        <button onClick={() => loadFiles(DEFAULT_PATH)} title="回到根目录">🏠</button>
-        <button onClick={() => toggleFavorite(currentPath)} title={isFavorited ? "取消收藏" : "收藏当前路径"}>
+        <button className="toolbar-btn" onClick={goUp} title="返回上级">⬆️</button>
+        <button className="toolbar-btn" onClick={() => loadFiles(DEFAULT_PATH)} title="根目录">🏠</button>
+        <button className={`toolbar-btn ${isFavorited ? "active" : ""}`} onClick={() => toggleFavorite(currentPath)} title={isFavorited ? "取消收藏" : "收藏"}>
           {isFavorited ? "⭐" : "☆"}
         </button>
-        <button onClick={() => setShowFavorites(!showFavorites)} title="收藏夹">
-          📑 收藏夹
-        </button>
+        <button className={`toolbar-btn ${showFavorites ? "active" : ""}`} onClick={() => setShowFavorites(!showFavorites)} title="收藏夹">📑</button>
         <form className="path-bar" onSubmit={(e) => { e.preventDefault(); loadFiles(pathInput); }}>
           <input value={pathInput} onChange={(e) => setPathInput(e.target.value)} className="path-input" />
-          <button type="submit">前往</button>
+          <button type="submit" className="path-go-btn">前往</button>
         </form>
       </div>
 
+      {/* 搜索栏 */}
       <div className="search-bar">
-        <input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="搜索文件名 或输入包名如 com.medialab.app"
-          className="search-input"
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-        />
-        <button onClick={handleSearch}>🔍 搜索</button>
-        {isSearching && <button onClick={() => loadFiles(currentPath)}>✖ 清除搜索</button>}
+        <div className="search-input-wrap">
+          <span className="search-icon">🔍</span>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索文件名 或输入包名如 com.medialab.app"
+            className="search-input"
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          />
+        </div>
+        <button className="search-btn" onClick={handleSearch}>搜索</button>
+        {isSearching && <button className="search-clear-btn" onClick={() => loadFiles(currentPath)}>✖ 清除</button>}
       </div>
 
+      {/* 状态提示 */}
       {downloadStatus && <div className="status-bar">{downloadStatus}</div>}
       {error && <div className="error-bar">{error}</div>}
 
+      {/* 主内容 */}
       <div className="main-content">
         {showFavorites && (
           <div className="sidebar">
             <h3>📑 收藏夹</h3>
             {favorites.length === 0 ? (
-              <p className="empty-hint">暂无收藏</p>
+              <p className="empty-hint" style={{ padding: "12px 0", fontSize: "12px" }}>暂无收藏</p>
             ) : (
               <ul className="fav-list">
                 {favorites.map((fav) => (
@@ -199,7 +230,10 @@ function App() {
 
         <div className="file-list-container">
           {loading ? (
-            <div className="loading">加载中...</div>
+            <div className="loading">
+              <div className="loading-spinner" />
+              <span className="loading-text">加载中...</span>
+            </div>
           ) : (
             <table className="file-table">
               <thead>
@@ -214,20 +248,28 @@ function App() {
               <tbody>
                 {files.map((file) => (
                   <tr key={file.name} className={file.is_dir ? "dir-row" : "file-row"}>
-                    <td className={file.is_dir ? "clickable dir-name" : "file-name"} onClick={() => file.is_dir && enterDir(file.name)}>
-                      {file.is_dir ? "📁" : "📄"} {file.name}
+                    <td
+                      className={file.is_dir ? "clickable dir-name" : "file-name"}
+                      onClick={() => file.is_dir && enterDir(file.name)}
+                    >
+                      <span className="file-icon">{getFileIcon(file.name, file.is_dir)}</span>
+                      {file.name}
                     </td>
-                    <td>{file.is_dir ? "-" : formatSize(file.size)}</td>
-                    <td>{file.date}</td>
-                    <td className="permissions">{file.permissions}</td>
+                    <td className="file-size">{file.is_dir ? "—" : formatSize(file.size)}</td>
+                    <td className="file-date">{file.date}</td>
+                    <td><span className="permissions">{file.permissions}</span></td>
                     <td>
-                      {!file.is_dir && <button className="btn-download" onClick={() => handleDownload(file.name)}>⬇️ 下载</button>}
-                      {file.is_dir && <button className="btn-enter" onClick={() => enterDir(file.name)}>📂 进入</button>}
+                      {!file.is_dir && (
+                        <button className="btn-download" onClick={() => handleDownload(file.name)}>下载</button>
+                      )}
+                      {file.is_dir && (
+                        <button className="btn-enter" onClick={() => enterDir(file.name)}>进入</button>
+                      )}
                     </td>
                   </tr>
                 ))}
                 {files.length === 0 && !loading && (
-                  <tr><td colSpan={5} className="empty-hint">目录为空</td></tr>
+                  <tr><td colSpan={5} className="empty-hint">📭 目录为空</td></tr>
                 )}
               </tbody>
             </table>
@@ -235,7 +277,11 @@ function App() {
         </div>
       </div>
 
-      <div className="footer">📍 {currentPath} | 共 {files.length} 项</div>
+      {/* 底部 */}
+      <div className="footer">
+        <span className="footer-path">📍 {currentPath}</span>
+        <span className="footer-count">共 {files.length} 项</span>
+      </div>
     </div>
   );
 }
