@@ -4,7 +4,7 @@
 
 A desktop app built with Tauri 2 + React for managing Android device SDCard files via ADB.
 
-![Screenshot](Xnip2026-03-16_18-38-19.jpg)
+![Screenshot](Xnip2026-03-16_18-38-20.jpg)
 
 ## Features
 

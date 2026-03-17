@@ -4,7 +4,7 @@
 
 基于 Tauri 2 + React 的桌面应用，通过 ADB 管理 Android 设备 SDCard 文件。
 
-![截图](Xnip2026-03-16_18-38-19.jpg)
+![截图](Xnip2026-03-16_18-38-20.jpg)
 
 ## 功能
 
