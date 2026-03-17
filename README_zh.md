@@ -11,6 +11,8 @@
 - 浏览 Android 设备 `/sdcard/` 目录结构
 - 文件搜索（支持文件名关键字和 Android 包名直达）
 - 下载设备文件到本地
+- 上传本地文件到设备
+- 删除设备上的文件/目录
 - 目录收藏夹（本地持久化）
 - 路径栏直接输入跳转
 - 自动检测系统 ADB 路径，也支持内置 ADB
@@ -49,7 +51,7 @@ npm run tauri build
 │   ├── App.tsx         # 主界面组件
 │   └── App.css         # 样式
 ├── src-tauri/          # Tauri/Rust 后端
-│   ├── src/lib.rs      # ADB 命令封装（list/download/search）
+│   ├── src/lib.rs      # ADB 命令封装（list/download/upload/delete/search）
 │   └── tauri.conf.json # Tauri 配置
 └── package.json
 ```

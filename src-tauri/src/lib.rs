@@ -166,6 +166,45 @@ fn search_files(path: &str, keyword: &str) -> Result<Vec<FileEntry>, String> {
     Ok(entries)
 }
 
+#[tauri::command]
+fn upload_file(local_path: &str, remote_path: &str) -> Result<String, String> {
+    let adb = get_adb();
+    let output = Command::new(adb)
+        .args(["push", local_path, remote_path])
+        .output()
+        .map_err(|e| format!("执行 adb push 失败: {}", e))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("上传失败: {}", err))
+    }
+}
+
+#[tauri::command]
+fn delete_file(remote_path: &str, is_dir: bool) -> Result<String, String> {
+    let adb = get_adb();
+    let cmd = if is_dir {
+        format!("rm -rf '{}'", remote_path)
+    } else {
+        format!("rm -f '{}'", remote_path)
+    };
+    let output = Command::new(adb)
+        .args(["shell", &cmd])
+        .output()
+        .map_err(|e| format!("执行 adb shell rm 失败: {}", e))?;
+
+    if output.status.success() {
+        Ok("删除成功".to_string())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("删除失败: {}", err))
+    }
+}
+
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -181,6 +220,8 @@ pub fn run() {
             list_files,
             download_file,
             search_files,
+            upload_file,
+            delete_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

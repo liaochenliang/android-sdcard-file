@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { save, ask } from "@tauri-apps/plugin-dialog";
+import { listen, TauriEvent } from "@tauri-apps/api/event";
 import "./App.css";
 
 interface FileEntry {
@@ -25,6 +26,11 @@ function App() {
   const [showFavorites, setShowFavorites] = useState(false);
   const [pathInput, setPathInput] = useState(DEFAULT_PATH);
   const [downloadStatus, setDownloadStatus] = useState("");
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+
+  const currentPathRef = useRef(currentPath);
+  currentPathRef.current = currentPath;
 
   useEffect(() => {
     const saved = localStorage.getItem("sdcard-favorites");
@@ -52,6 +58,49 @@ function App() {
       setLoading(false);
     }
   }, []);
+
+  // 监听 Tauri 拖拽事件
+  useEffect(() => {
+    const unlisteners: (() => void)[] = [];
+
+    const setup = async () => {
+      const u1 = await listen(TauriEvent.DRAG_ENTER, () => {
+        setIsDragOver(true);
+      });
+      const u2 = await listen(TauriEvent.DRAG_OVER, () => {
+        setIsDragOver(true);
+      });
+      const u3 = await listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, async (event) => {
+        setIsDragOver(false);
+        const paths = event.payload.paths;
+        if (!paths || paths.length === 0) return;
+
+        const curPath = currentPathRef.current;
+        for (const localPath of paths) {
+          const fileName = localPath.split(/[/\\]/).pop() || "unknown";
+          const remotePath = curPath.endsWith("/")
+            ? `${curPath}${fileName}`
+            : `${curPath}/${fileName}`;
+          try {
+            setUploadStatus(`正在上传 ${fileName}...`);
+            await invoke("upload_file", { localPath, remotePath });
+            setUploadStatus(`${fileName} 上传完成`);
+          } catch (e) {
+            setUploadStatus(`上传失败: ${e}`);
+          }
+        }
+        loadFiles(currentPathRef.current);
+        setTimeout(() => setUploadStatus(""), 3000);
+      });
+      const u4 = await listen(TauriEvent.DRAG_LEAVE, () => {
+        setIsDragOver(false);
+      });
+      unlisteners.push(u1, u2, u3, u4);
+    };
+
+    setup();
+    return () => { unlisteners.forEach((u) => u()); };
+  }, [loadFiles]);
 
   useEffect(() => {
     if (adbOk) loadFiles(DEFAULT_PATH);
@@ -107,6 +156,26 @@ function App() {
       setTimeout(() => setDownloadStatus(""), 3000);
     } catch (e) {
       setDownloadStatus(`下载失败: ${e}`);
+    }
+  };
+
+  const handleDelete = async (fileName: string, isDir: boolean) => {
+    const confirmed = await ask(
+      `确定要删除${isDir ? "文件夹" : "文件"} "${fileName}" 吗？此操作不可恢复。`,
+      { title: "确认删除", kind: "warning" }
+    );
+    if (!confirmed) return;
+    const remotePath = currentPath.endsWith("/")
+      ? `${currentPath}${fileName}`
+      : `${currentPath}/${fileName}`;
+    try {
+      setDownloadStatus(`正在删除 ${fileName}...`);
+      await invoke("delete_file", { remotePath, isDir });
+      setDownloadStatus(`${fileName} 已删除`);
+      loadFiles(currentPath);
+      setTimeout(() => setDownloadStatus(""), 3000);
+    } catch (e) {
+      setDownloadStatus(`删除失败: ${e}`);
     }
   };
 
@@ -205,8 +274,19 @@ function App() {
       </div>
 
       {/* 状态提示 */}
+      {uploadStatus && <div className="status-bar upload-status">{uploadStatus}</div>}
       {downloadStatus && <div className="status-bar">{downloadStatus}</div>}
       {error && <div className="error-bar">{error}</div>}
+
+      {/* 拖拽遮罩 */}
+      {isDragOver && (
+        <div className="drag-overlay">
+          <div className="drag-overlay-content">
+            <span className="drag-icon">📤</span>
+            <p>松开鼠标上传文件到当前目录</p>
+          </div>
+        </div>
+      )}
 
       {/* 主内容 */}
       <div className="main-content">
@@ -265,6 +345,7 @@ function App() {
                       {file.is_dir && (
                         <button className="btn-enter" onClick={() => enterDir(file.name)}>进入</button>
                       )}
+                      <button className="btn-delete" onClick={() => handleDelete(file.name, file.is_dir)}>删除</button>
                     </td>
                   </tr>
                 ))}
