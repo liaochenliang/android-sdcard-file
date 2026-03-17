@@ -203,6 +203,42 @@ fn delete_file(remote_path: &str, is_dir: bool) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn install_apk_from_local(local_path: &str) -> Result<String, String> {
+    let adb = get_adb();
+    let output = Command::new(adb)
+        .args(["install", "-r", local_path])
+        .output()
+        .map_err(|e| format!("执行 adb install 失败: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if stdout.contains("Success") {
+        Ok("安装成功".to_string())
+    } else {
+        Err(format!("安装失败: {} {}", stdout.trim(), stderr.trim()))
+    }
+}
+
+#[tauri::command]
+fn read_text_file(remote_path: &str) -> Result<String, String> {
+    let adb = get_adb();
+    let output = Command::new(adb)
+        .args(["shell", &format!("cat '{}'", remote_path)])
+        .output()
+        .map_err(|e| format!("执行 adb shell cat 失败: {}", e))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("读取失败: {}", err))
+    }
+}
+
+
+
 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -222,6 +258,8 @@ pub fn run() {
             search_files,
             upload_file,
             delete_file,
+            install_apk_from_local,
+            read_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { save, ask } from "@tauri-apps/plugin-dialog";
+import { save, ask, open } from "@tauri-apps/plugin-dialog";
 import { listen, TauriEvent } from "@tauri-apps/api/event";
 import "./App.css";
 
@@ -28,6 +28,9 @@ function App() {
   const [downloadStatus, setDownloadStatus] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [installStatus, setInstallStatus] = useState("");
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewFileName, setPreviewFileName] = useState("");
 
   const currentPathRef = useRef(currentPath);
   currentPathRef.current = currentPath;
@@ -179,6 +182,50 @@ function App() {
     }
   };
 
+
+  const handleInstallFromLocal = async () => {
+    try {
+      const selected = await open({
+        filters: [{ name: "APK 文件", extensions: ["apk"] }],
+        multiple: false,
+      });
+      if (!selected) return;
+      const localPath = typeof selected === "string" ? selected : selected;
+      const fileName = String(localPath).split(/[/\\]/).pop() || "unknown.apk";
+      setInstallStatus(`正在安装本地 APK: ${fileName}...`);
+      await invoke("install_apk_from_local", { localPath: String(localPath) });
+      setInstallStatus(`${fileName} 安装成功`);
+    } catch (e) {
+      setInstallStatus(`安装失败: ${e}`);
+    }
+    setTimeout(() => setInstallStatus(""), 4000);
+  };
+
+  const TEXT_EXTS = new Set([
+    "txt", "md", "json", "xml", "log", "csv", "yml", "yaml",
+    "ini", "conf", "sh", "py", "js", "ts", "html", "css",
+    "java", "kt", "c", "cpp", "h", "rs", "toml", "cfg", "properties",
+  ]);
+
+  const isTextFile = (name: string) => {
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    return TEXT_EXTS.has(ext);
+  };
+
+  const handlePreview = async (fileName: string) => {
+    const remotePath = currentPath.endsWith("/")
+      ? `${currentPath}${fileName}`
+      : `${currentPath}/${fileName}`;
+    try {
+      setPreviewFileName(fileName);
+      setPreviewContent("加载中...");
+      const content = await invoke<string>("read_text_file", { remotePath });
+      setPreviewContent(content);
+    } catch (e) {
+      setPreviewContent(`读取失败: ${e}`);
+    }
+  };
+
   const toggleFavorite = (path: string) => {
     const newFavs = favorites.includes(path)
       ? favorites.filter((f) => f !== path)
@@ -245,12 +292,13 @@ function App() {
 
       {/* 工具栏 */}
       <div className="toolbar">
-        <button className="toolbar-btn" onClick={goUp} title="返回上级">⬆️</button>
-        <button className="toolbar-btn" onClick={() => loadFiles(DEFAULT_PATH)} title="根目录">🏠</button>
+        <button className="toolbar-btn" onClick={goUp} title="返回上级"><span className="toolbar-icon">⬆️</span><span className="toolbar-label">上级</span></button>
+        <button className="toolbar-btn" onClick={() => loadFiles(DEFAULT_PATH)} title="根目录"><span className="toolbar-icon">🏠</span><span className="toolbar-label">根目录</span></button>
         <button className={`toolbar-btn ${isFavorited ? "active" : ""}`} onClick={() => toggleFavorite(currentPath)} title={isFavorited ? "取消收藏" : "收藏"}>
-          {isFavorited ? "⭐" : "☆"}
+          <span className="toolbar-icon">{isFavorited ? "⭐" : "☆"}</span><span className="toolbar-label">{isFavorited ? "已收藏" : "收藏"}</span>
         </button>
-        <button className={`toolbar-btn ${showFavorites ? "active" : ""}`} onClick={() => setShowFavorites(!showFavorites)} title="收藏夹">📑</button>
+        <button className={`toolbar-btn ${showFavorites ? "active" : ""}`} onClick={() => setShowFavorites(!showFavorites)} title="收藏夹"><span className="toolbar-icon">📑</span><span className="toolbar-label">收藏夹</span></button>
+        <button className="toolbar-btn" onClick={handleInstallFromLocal} title="从本地安装 APK"><span className="toolbar-icon">📲</span><span className="toolbar-label">安装APK</span></button>
         <form className="path-bar" onSubmit={(e) => { e.preventDefault(); loadFiles(pathInput); }}>
           <input value={pathInput} onChange={(e) => setPathInput(e.target.value)} className="path-input" />
           <button type="submit" className="path-go-btn">前往</button>
@@ -275,6 +323,7 @@ function App() {
 
       {/* 状态提示 */}
       {uploadStatus && <div className="status-bar upload-status">{uploadStatus}</div>}
+      {installStatus && <div className="status-bar install-status">{installStatus}</div>}
       {downloadStatus && <div className="status-bar">{downloadStatus}</div>}
       {error && <div className="error-bar">{error}</div>}
 
@@ -327,7 +376,9 @@ function App() {
               </thead>
               <tbody>
                 {files.map((file) => (
-                  <tr key={file.name} className={file.is_dir ? "dir-row" : "file-row"}>
+                  <tr key={file.name} className={file.is_dir ? "dir-row" : "file-row"}
+                    onDoubleClick={() => !file.is_dir && isTextFile(file.name) && handlePreview(file.name)}
+                  >
                     <td
                       className={file.is_dir ? "clickable dir-name" : "file-name"}
                       onClick={() => file.is_dir && enterDir(file.name)}
@@ -357,6 +408,19 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* 文本预览弹窗 */}
+      {previewContent !== null && (
+        <div className="preview-overlay" onClick={() => setPreviewContent(null)}>
+          <div className="preview-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="preview-header">
+              <span className="preview-title">📄 {previewFileName}</span>
+              <button className="preview-close" onClick={() => setPreviewContent(null)}>✖</button>
+            </div>
+            <pre className="preview-content">{previewContent}</pre>
+          </div>
+        </div>
+      )}
 
       {/* 底部 */}
       <div className="footer">
