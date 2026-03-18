@@ -4,10 +4,11 @@
 
 A desktop app built with Tauri 2 + React for managing Android device SDCard files via ADB.
 
-![Screenshot](Xnip2026-03-16_18-38-20.jpg)
+![Screenshot](Xnip2026-03-18_18-14-39.jpg)
 
 ## Features
 
+- Device info dashboard (brand, model, Android version, SDK, serial, resolution, battery, storage)
 - Browse Android device `/sdcard/` directory
 - File search (by filename keyword or Android package name)
 - Download files from device to local machine
@@ -16,7 +17,8 @@ A desktop app built with Tauri 2 + React for managing Android device SDCard file
 - Install local APK files to device
 - Preview text files directly in app
 - Directory bookmarks (persisted locally)
-- Direct path navigation via address bar
+- Breadcrumb path navigation
+- i4Tools-inspired sidebar layout
 - Auto-detects system ADB path, also supports bundled ADB
 
 ## Prerequisites
@@ -50,10 +52,10 @@ npm run tauri build
 
 ```
 ├── src/                # React frontend
-│   ├── App.tsx         # Main UI component
+│   ├── App.tsx         # Main UI component (sidebar + pages)
 │   └── App.css         # Styles
 ├── src-tauri/          # Tauri/Rust backend
-│   ├── src/lib.rs      # ADB command wrappers (list/download/upload/delete/search/install/preview)
+│   ├── src/lib.rs      # ADB command wrappers (device-info/list/download/upload/delete/search/install/preview)
 │   └── tauri.conf.json # Tauri config
 └── package.json
 ```

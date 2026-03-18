@@ -4,10 +4,11 @@
 
 基于 Tauri 2 + React 的桌面应用，通过 ADB 管理 Android 设备 SDCard 文件。
 
-![截图](Xnip2026-03-16_18-38-20.jpg)
+![截图](Xnip2026-03-18_18-14-39.jpg)
 
 ## 功能
 
+- 设备信息面板（品牌、型号、Android 版本、SDK、序列号、分辨率、电池、存储）
 - 浏览 Android 设备 `/sdcard/` 目录结构
 - 文件搜索（支持文件名关键字和 Android 包名直达）
 - 下载设备文件到本地
@@ -16,7 +17,8 @@
 - 安装本地 APK 文件到设备
 - 文本文件在线预览
 - 目录收藏夹（本地持久化）
-- 路径栏直接输入跳转
+- 面包屑路径导航
+- 仿爱思助手侧边栏布局
 - 自动检测系统 ADB 路径，也支持内置 ADB
 
 ## 环境要求
@@ -50,10 +52,10 @@ npm run tauri build
 
 ```
 ├── src/                # React 前端
-│   ├── App.tsx         # 主界面组件
-│   ├── src/lib.rs      # ADB 命令封装（list/download/upload/delete/search/install/preview）
+│   ├── App.tsx         # 主界面组件（侧边栏 + 多页面）
+│   └── App.css         # 样式
 ├── src-tauri/          # Tauri/Rust 后端
-│   ├── src/lib.rs      # ADB 命令封装（list/download/upload/delete/search）
+│   ├── src/lib.rs      # ADB 命令封装（device-info/list/download/upload/delete/search/install/preview）
 │   └── tauri.conf.json # Tauri 配置
 └── package.json
 ```

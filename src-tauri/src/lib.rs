@@ -63,6 +63,35 @@ pub struct FileEntry {
     pub permissions: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeviceInfo {
+    pub brand: String,
+    pub model: String,
+    pub device: String,
+    pub android_version: String,
+    pub sdk_version: String,
+    pub serial: String,
+    pub resolution: String,
+    pub battery_level: String,
+    pub battery_status: String,
+    pub storage_total: String,
+    pub storage_used: String,
+    pub storage_free: String,
+}
+
+fn adb_shell(cmd: &str) -> String {
+    let adb = get_adb();
+    Command::new(adb)
+        .args(["shell", cmd])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+fn adb_getprop(prop: &str) -> String {
+    adb_shell(&format!("getprop {}", prop))
+}
+
 #[tauri::command]
 fn check_adb() -> Result<String, String> {
     let adb = get_adb();
@@ -75,6 +104,90 @@ fn check_adb() -> Result<String, String> {
     } else {
         Err("adb 命令执行失败".to_string())
     }
+}
+
+#[tauri::command]
+fn get_device_info() -> Result<DeviceInfo, String> {
+    // 先检查 adb 可用
+    let adb = get_adb();
+    let ver = Command::new(adb).arg("version").output()
+        .map_err(|e| format!("adb 未找到: {}", e))?;
+    if !ver.status.success() {
+        return Err("adb 不可用".to_string());
+    }
+
+    let brand = adb_getprop("ro.product.brand");
+    let model = adb_getprop("ro.product.model");
+    let device = adb_getprop("ro.product.device");
+    let android_version = adb_getprop("ro.build.version.release");
+    let sdk_version = adb_getprop("ro.build.version.sdk");
+
+    // 序列号
+    let serial = Command::new(adb).args(["get-serialno"]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    // 分辨率
+    let wm_out = adb_shell("wm size");
+    let resolution = wm_out.split(':').last().unwrap_or("").trim().to_string();
+
+    // 电池
+    let battery_out = adb_shell("dumpsys battery");
+    let mut battery_level = String::new();
+    let mut battery_status = String::new();
+    for line in battery_out.lines() {
+        let line = line.trim();
+        if line.starts_with("level:") {
+            battery_level = line.replace("level:", "").trim().to_string();
+        }
+        if line.starts_with("status:") {
+            let code = line.replace("status:", "").trim().to_string();
+            battery_status = match code.as_str() {
+                "2" => "充电中".to_string(),
+                "3" => "放电中".to_string(),
+                "4" => "未充电".to_string(),
+                "5" => "已充满".to_string(),
+                _ => code,
+            };
+        }
+    }
+
+    // 存储 (df /sdcard)
+    let df_out = adb_shell("df /data");
+    let mut storage_total = String::new();
+    let mut storage_used = String::new();
+    let mut storage_free = String::new();
+    for line in df_out.lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 4 {
+            storage_total = format_storage_size(parts[1]);
+            storage_used = format_storage_size(parts[2]);
+            storage_free = format_storage_size(parts[3]);
+            break;
+        }
+    }
+
+    Ok(DeviceInfo {
+        brand, model, device, android_version, sdk_version, serial,
+        resolution, battery_level, battery_status,
+        storage_total, storage_used, storage_free,
+    })
+}
+
+fn format_storage_size(kb_str: &str) -> String {
+    // df 输出单位通常是 1K-blocks
+    let n: f64 = kb_str.replace("K", "").replace("G", "").replace("M", "")
+        .parse().unwrap_or(0.0);
+    if kb_str.contains('G') {
+        return format!("{:.1} GB", n);
+    }
+    if kb_str.contains('M') {
+        return format!("{:.1} MB", n);
+    }
+    // 默认 KB
+    if n < 1024.0 { return format!("{:.0} KB", n); }
+    if n < 1024.0 * 1024.0 { return format!("{:.1} MB", n / 1024.0); }
+    format!("{:.1} GB", n / 1024.0 / 1024.0)
 }
 
 #[tauri::command]
@@ -253,6 +366,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             check_adb,
+            get_device_info,
             list_files,
             download_file,
             search_files,
