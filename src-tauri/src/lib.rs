@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::OnceLock;
 use tauri::Manager;
 
@@ -79,16 +79,95 @@ pub struct DeviceInfo {
     pub storage_free: String,
 }
 
-fn adb_shell(cmd: &str) -> String {
-    let adb = get_adb();
-    Command::new(adb)
-        .args(["shell", cmd])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default()
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConnectedDevice {
+    serial: String,
+    state: String,
 }
 
-fn adb_getprop(prop: &str) -> String {
+fn parse_connected_devices(output: &str) -> Vec<ConnectedDevice> {
+    output
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+
+            let mut parts = line.split_whitespace();
+            let serial = parts.next()?.to_string();
+            let state = parts.next()?.to_string();
+
+            Some(ConnectedDevice { serial, state })
+        })
+        .collect()
+}
+
+fn select_physical_device_serial(devices: &[ConnectedDevice]) -> Result<String, String> {
+    let physical: Vec<&ConnectedDevice> = devices
+        .iter()
+        .filter(|device| device.state == "device" && !device.serial.starts_with("emulator-"))
+        .collect();
+
+    match physical.len() {
+        1 => Ok(physical[0].serial.clone()),
+        0 => {
+            let has_emulator = devices.iter().any(|device| device.serial.starts_with("emulator-"));
+            if has_emulator {
+                Err("未检测到可用的 USB 真机，当前仅连接了模拟器".to_string())
+            } else {
+                Err("未检测到可用的 USB 真机，请连接并授权设备".to_string())
+            }
+        }
+        _ => Err("检测到多台 USB 真机，请只保留一台设备连接".to_string()),
+    }
+}
+
+fn adb_args_with_serial<'a>(serial: &'a str, args: &'a [&'a str]) -> Vec<&'a str> {
+    let mut full_args = vec!["-s", serial];
+    full_args.extend_from_slice(args);
+    full_args
+}
+
+fn get_target_device_serial() -> Result<String, String> {
+    let adb = get_adb();
+    let output = Command::new(adb)
+        .args(["devices", "-l"])
+        .output()
+        .map_err(|e| format!("执行 adb devices 失败: {}", e))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            "adb devices 执行失败".to_string()
+        } else {
+            format!("adb devices 执行失败: {}", err)
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let devices = parse_connected_devices(&stdout);
+    select_physical_device_serial(&devices)
+}
+
+fn run_adb_on_target(args: &[&str]) -> Result<Output, String> {
+    let adb = get_adb();
+    let serial = get_target_device_serial()?;
+    let full_args = adb_args_with_serial(&serial, args);
+
+    Command::new(adb)
+        .args(&full_args)
+        .output()
+        .map_err(|e| format!("执行 adb 命令失败: {}", e))
+}
+
+fn adb_shell(cmd: &str) -> Result<String, String> {
+    let output = run_adb_on_target(&["shell", cmd])?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn adb_getprop(prop: &str) -> Result<String, String> {
     adb_shell(&format!("getprop {}", prop))
 }
 
@@ -99,11 +178,12 @@ fn check_adb() -> Result<String, String> {
         .arg("version")
         .output()
         .map_err(|e| format!("adb 未找到 ({}): {}", adb, e))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err("adb 命令执行失败".to_string())
+    if !output.status.success() {
+        return Err("adb 命令执行失败".to_string());
     }
+
+    get_target_device_serial()?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 #[tauri::command]
@@ -116,23 +196,18 @@ fn get_device_info() -> Result<DeviceInfo, String> {
         return Err("adb 不可用".to_string());
     }
 
-    let brand = adb_getprop("ro.product.brand");
-    let model = adb_getprop("ro.product.model");
-    let device = adb_getprop("ro.product.device");
-    let android_version = adb_getprop("ro.build.version.release");
-    let sdk_version = adb_getprop("ro.build.version.sdk");
+    let serial = get_target_device_serial()?;
 
-    // 序列号
-    let serial = Command::new(adb).args(["get-serialno"]).output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+    let brand = adb_getprop("ro.product.brand")?;
+    let model = adb_getprop("ro.product.model")?;
+    let device = adb_getprop("ro.product.device")?;
+    let android_version = adb_getprop("ro.build.version.release")?;
+    let sdk_version = adb_getprop("ro.build.version.sdk")?;
 
-    // 分辨率
-    let wm_out = adb_shell("wm size");
+    let wm_out = adb_shell("wm size")?;
     let resolution = wm_out.split(':').last().unwrap_or("").trim().to_string();
 
-    // 电池
-    let battery_out = adb_shell("dumpsys battery");
+    let battery_out = adb_shell("dumpsys battery")?;
     let mut battery_level = String::new();
     let mut battery_status = String::new();
     for line in battery_out.lines() {
@@ -153,7 +228,7 @@ fn get_device_info() -> Result<DeviceInfo, String> {
     }
 
     // 存储 (df /sdcard)
-    let df_out = adb_shell("df /data");
+    let df_out = adb_shell("df /data")?;
     let mut storage_total = String::new();
     let mut storage_used = String::new();
     let mut storage_free = String::new();
@@ -192,11 +267,8 @@ fn format_storage_size(kb_str: &str) -> String {
 
 #[tauri::command]
 fn list_files(path: &str) -> Result<Vec<FileEntry>, String> {
-    let adb = get_adb();
-    let output = Command::new(adb)
-        .args(["shell", &format!("ls -la '{}'", path)])
-        .output()
-        .map_err(|e| format!("执行 adb 命令失败: {}", e))?;
+    let shell_cmd = format!("ls -la '{}'", path);
+    let output = run_adb_on_target(&["shell", &shell_cmd])?;
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr).to_string();
@@ -229,11 +301,8 @@ fn list_files(path: &str) -> Result<Vec<FileEntry>, String> {
 
 #[tauri::command]
 fn download_file(remote_path: &str, local_path: &str) -> Result<String, String> {
-    let adb = get_adb();
-    let output = Command::new(adb)
-        .args(["pull", remote_path, local_path])
-        .output()
-        .map_err(|e| format!("执行 adb pull 失败: {}", e))?;
+    let output = run_adb_on_target(&["pull", remote_path, local_path])
+        .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb pull 失败"))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -245,11 +314,9 @@ fn download_file(remote_path: &str, local_path: &str) -> Result<String, String> 
 
 #[tauri::command]
 fn search_files(path: &str, keyword: &str) -> Result<Vec<FileEntry>, String> {
-    let adb = get_adb();
-    let output = Command::new(adb)
-        .args(["shell", &format!("find '{}' -maxdepth 3 -name '*{}*' 2>/dev/null", path, keyword)])
-        .output()
-        .map_err(|e| format!("执行搜索失败: {}", e))?;
+    let search_cmd = format!("find '{}' -maxdepth 3 -name '*{}*' 2>/dev/null", path, keyword);
+    let output = run_adb_on_target(&["shell", &search_cmd])
+        .map_err(|e| e.replace("执行 adb 命令失败", "执行搜索失败"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut entries: Vec<FileEntry> = Vec::new();
@@ -258,9 +325,8 @@ fn search_files(path: &str, keyword: &str) -> Result<Vec<FileEntry>, String> {
         let line = line.trim();
         if line.is_empty() { continue; }
 
-        let info_output = Command::new(adb)
-            .args(["shell", &format!("ls -lad '{}'", line)])
-            .output();
+        let info_cmd = format!("ls -lad '{}'", line);
+        let info_output = run_adb_on_target(&["shell", &info_cmd]);
 
         if let Ok(info) = info_output {
             let info_str = String::from_utf8_lossy(&info.stdout);
@@ -281,11 +347,8 @@ fn search_files(path: &str, keyword: &str) -> Result<Vec<FileEntry>, String> {
 
 #[tauri::command]
 fn upload_file(local_path: &str, remote_path: &str) -> Result<String, String> {
-    let adb = get_adb();
-    let output = Command::new(adb)
-        .args(["push", local_path, remote_path])
-        .output()
-        .map_err(|e| format!("执行 adb push 失败: {}", e))?;
+    let output = run_adb_on_target(&["push", local_path, remote_path])
+        .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb push 失败"))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -297,16 +360,13 @@ fn upload_file(local_path: &str, remote_path: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn delete_file(remote_path: &str, is_dir: bool) -> Result<String, String> {
-    let adb = get_adb();
     let cmd = if is_dir {
         format!("rm -rf '{}'", remote_path)
     } else {
         format!("rm -f '{}'", remote_path)
     };
-    let output = Command::new(adb)
-        .args(["shell", &cmd])
-        .output()
-        .map_err(|e| format!("执行 adb shell rm 失败: {}", e))?;
+    let output = run_adb_on_target(&["shell", &cmd])
+        .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb shell rm 失败"))?;
 
     if output.status.success() {
         Ok("删除成功".to_string())
@@ -318,11 +378,8 @@ fn delete_file(remote_path: &str, is_dir: bool) -> Result<String, String> {
 
 #[tauri::command]
 fn install_apk_from_local(local_path: &str) -> Result<String, String> {
-    let adb = get_adb();
-    let output = Command::new(adb)
-        .args(["install", "-r", local_path])
-        .output()
-        .map_err(|e| format!("执行 adb install 失败: {}", e))?;
+    let output = run_adb_on_target(&["install", "-r", local_path])
+        .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb install 失败"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -336,11 +393,9 @@ fn install_apk_from_local(local_path: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn read_text_file(remote_path: &str) -> Result<String, String> {
-    let adb = get_adb();
-    let output = Command::new(adb)
-        .args(["shell", &format!("cat '{}'", remote_path)])
-        .output()
-        .map_err(|e| format!("执行 adb shell cat 失败: {}", e))?;
+    let shell_cmd = format!("cat '{}'", remote_path);
+    let output = run_adb_on_target(&["shell", &shell_cmd])
+        .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb shell cat 失败"))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -377,4 +432,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_adb_devices_prefers_usb_device_over_emulator() {
+        let output = "List of devices attached\n56233d73 device usb:18022400X product:apollo model:M2007J3SC device:apollo transport_id:5\nemulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1\n";
+
+        let devices = parse_connected_devices(output);
+        let serial = select_physical_device_serial(&devices).unwrap();
+
+        assert_eq!(serial, "56233d73");
+    }
+
+    #[test]
+    fn adb_args_include_selected_usb_serial() {
+        let args = adb_args_with_serial("56233d73", &["shell", "pwd"]);
+
+        assert_eq!(args, vec!["-s", "56233d73", "shell", "pwd"]);
+    }
 }

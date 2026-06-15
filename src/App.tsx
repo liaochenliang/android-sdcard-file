@@ -30,6 +30,50 @@ interface DeviceInfo {
 type NavPage = "device" | "files" | "apk" | "favorites";
 const DEFAULT_PATH = "/sdcard/";
 
+function getAdbErrorDisplay(error: string) {
+  if (error.includes("当前仅连接了模拟器")) {
+    return {
+      title: "⚠️ 检测到模拟器",
+      tips: [
+        "当前项目不允许连接模拟器",
+        "请关闭 Android 模拟器",
+        "请通过 USB 连接一台已授权调试的真机",
+      ],
+    };
+  }
+
+  if (error.includes("多台 USB 真机")) {
+    return {
+      title: "⚠️ 检测到多台真机",
+      tips: [
+        "当前项目一次只允许连接一台 USB 真机",
+        "请断开多余设备后重试",
+        "保留目标真机并确认已开启 USB 调试",
+      ],
+    };
+  }
+
+  if (error.includes("未检测到可用的 USB 真机")) {
+    return {
+      title: "⚠️ 未检测到真机",
+      tips: [
+        "请通过 USB 连接 Android 真机",
+        "请确认设备已开启 USB 调试并点过授权",
+        "如果开着模拟器，请先关闭模拟器",
+      ],
+    };
+  }
+
+  return {
+    title: "⚠️ ADB 未就绪",
+    tips: [
+      "已安装 Android SDK Platform Tools",
+      "adb 已添加到系统 PATH",
+      "已通过 USB 连接 Android 设备并开启 USB 调试",
+    ],
+  };
+}
+
 function App() {
   const [currentPath, setCurrentPath] = useState(DEFAULT_PATH);
   const [files, setFiles] = useState<FileEntry[]>([]);
@@ -263,19 +307,20 @@ function App() {
 
   // 面包屑数据
   const breadcrumbs = currentPath.split("/").filter(Boolean);
+  const adbErrorDisplay = getAdbErrorDisplay(error);
 
   // ===== 错误页面 =====
   if (!adbOk && error) {
     return (
       <div className="error-screen">
         <div className="error-card">
-          <h2>⚠️ ADB 未就绪</h2>
+          <h2>{adbErrorDisplay.title}</h2>
           <p className="error-msg">{error}</p>
           <p className="error-msg">请确保：</p>
           <ul className="error-tips">
-            <li>已安装 Android SDK Platform Tools</li>
-            <li>adb 已添加到系统 PATH</li>
-            <li>已通过 USB 连接 Android 设备并开启 USB 调试</li>
+            {adbErrorDisplay.tips.map((tip) => (
+              <li key={tip}>{tip}</li>
+            ))}
           </ul>
         </div>
       </div>
