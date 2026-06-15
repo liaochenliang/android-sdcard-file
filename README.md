@@ -41,6 +41,14 @@ npm run tauri dev
 npm run tauri build
 ```
 
+## macOS Note
+
+If macOS says the installed app is damaged, clear the app quarantine attribute and reopen it:
+
+```bash
+xattr -cr /path/to/Android\ SDCard\ File\ Manager.app
+```
+
 ## Tech Stack
 
 - Tauri 2

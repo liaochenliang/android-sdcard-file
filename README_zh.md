@@ -41,6 +41,14 @@ npm run tauri dev
 npm run tauri build
 ```
 
+## macOS 提示
+
+如果安装后 macOS 提示 App“已损坏”，可以执行下面的命令清除应用隔离属性后重新打开：
+
+```bash
+xattr -cr /path/to/Android\ SDCard\ File\ Manager.app
+```
+
 ## 技术栈
 
 - Tauri 2
