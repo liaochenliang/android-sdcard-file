@@ -30,6 +30,10 @@ interface DeviceInfo {
 type NavPage = "device" | "files" | "apk" | "favorites";
 const DEFAULT_PATH = "/sdcard/";
 
+function normalizeDevicePath(path: string) {
+  return path.replace(/^\/storage\/emulated\/?$/, "/storage/emulated/0/");
+}
+
 function getAdbErrorDisplay(error: string) {
   if (error.includes("当前仅连接了模拟器")) {
     return {
@@ -126,13 +130,14 @@ function App() {
   }, [adbOk, loadDeviceInfo]);
 
   const loadFiles = useCallback(async (path: string) => {
+    const normalizedPath = normalizeDevicePath(path);
     setLoading(true);
     setError("");
     setIsSearching(false);
     try {
-      const result = await invoke<FileEntry[]>("list_files", { path });
+      const result = await invoke<FileEntry[]>("list_files", { path: normalizedPath });
       setFiles(result);
-      setCurrentPath(path);
+      setCurrentPath(normalizedPath);
     } catch (e) {
       setError(String(e));
     } finally {

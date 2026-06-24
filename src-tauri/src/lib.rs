@@ -265,8 +265,16 @@ fn format_storage_size(kb_str: &str) -> String {
     format!("{:.1} GB", n / 1024.0 / 1024.0)
 }
 
+fn normalize_device_path(path: &str) -> String {
+    match path.trim_end_matches('/') {
+        "/storage/emulated" => "/storage/emulated/0/".to_string(),
+        _ => path.to_string(),
+    }
+}
+
 #[tauri::command]
 fn list_files(path: &str) -> Result<Vec<FileEntry>, String> {
+    let path = normalize_device_path(path);
     let shell_cmd = format!("ls -la '{}'", path);
     let output = run_adb_on_target(&["shell", &shell_cmd])?;
 
@@ -301,7 +309,8 @@ fn list_files(path: &str) -> Result<Vec<FileEntry>, String> {
 
 #[tauri::command]
 fn download_file(remote_path: &str, local_path: &str) -> Result<String, String> {
-    let output = run_adb_on_target(&["pull", remote_path, local_path])
+    let remote_path = normalize_device_path(remote_path);
+    let output = run_adb_on_target(&["pull", &remote_path, local_path])
         .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb pull 失败"))?;
 
     if output.status.success() {
@@ -314,6 +323,7 @@ fn download_file(remote_path: &str, local_path: &str) -> Result<String, String> 
 
 #[tauri::command]
 fn search_files(path: &str, keyword: &str) -> Result<Vec<FileEntry>, String> {
+    let path = normalize_device_path(path);
     let search_cmd = format!("find '{}' -maxdepth 3 -name '*{}*' 2>/dev/null", path, keyword);
     let output = run_adb_on_target(&["shell", &search_cmd])
         .map_err(|e| e.replace("执行 adb 命令失败", "执行搜索失败"))?;
@@ -347,7 +357,8 @@ fn search_files(path: &str, keyword: &str) -> Result<Vec<FileEntry>, String> {
 
 #[tauri::command]
 fn upload_file(local_path: &str, remote_path: &str) -> Result<String, String> {
-    let output = run_adb_on_target(&["push", local_path, remote_path])
+    let remote_path = normalize_device_path(remote_path);
+    let output = run_adb_on_target(&["push", local_path, &remote_path])
         .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb push 失败"))?;
 
     if output.status.success() {
@@ -360,6 +371,7 @@ fn upload_file(local_path: &str, remote_path: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn delete_file(remote_path: &str, is_dir: bool) -> Result<String, String> {
+    let remote_path = normalize_device_path(remote_path);
     let cmd = if is_dir {
         format!("rm -rf '{}'", remote_path)
     } else {
@@ -393,6 +405,7 @@ fn install_apk_from_local(local_path: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn read_text_file(remote_path: &str) -> Result<String, String> {
+    let remote_path = normalize_device_path(remote_path);
     let shell_cmd = format!("cat '{}'", remote_path);
     let output = run_adb_on_target(&["shell", &shell_cmd])
         .map_err(|e| e.replace("执行 adb 命令失败", "执行 adb shell cat 失败"))?;
@@ -453,5 +466,11 @@ mod tests {
         let args = adb_args_with_serial("56233d73", &["shell", "pwd"]);
 
         assert_eq!(args, vec!["-s", "56233d73", "shell", "pwd"]);
+    }
+
+    #[test]
+    fn storage_emulated_parent_maps_to_primary_user_storage() {
+        assert_eq!(normalize_device_path("/storage/emulated"), "/storage/emulated/0/");
+        assert_eq!(normalize_device_path("/storage/emulated/"), "/storage/emulated/0/");
     }
 }
