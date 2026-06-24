@@ -384,7 +384,7 @@ function App() {
           )}
         </nav>
 
-        <div className="sidebar-footer">v0.1.3</div>
+        <div className="sidebar-footer">v0.1.4</div>
       </aside>
 
       {/* ===== 右侧主区域 ===== */}
